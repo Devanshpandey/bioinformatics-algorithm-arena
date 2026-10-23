@@ -1,0 +1,143 @@
+id: P09
+title: Maximum-likelihood phylogenetic tree search
+taxonomy_class: "C"          # search a combinatorial space efficiently
+status: implemented
+
+formal_spec:
+  statement: >
+    Given an alignment of n taxa over m sites and a fixed substitution model,
+    find the unrooted topology and branch lengths maximizing the log-likelihood.
+    The space of topologies is (2n-5)!!; the objective is exactly computable by
+    Felsenstein's pruning algorithm. NP-hard.
+  api: "search(data, budget_s) -> Tree"
+
+truth_source:
+  kind: EXACT
+  detail: >
+    The score is the log-likelihood of the submission's OWN output under a fixed
+    model, computed to machine precision. There is no answer key: nothing to
+    download, memorize, retrieve, or bias. This is the strongest evaluator class
+    in the arena -- the same class as minimizer density.
+  optimality_gate: >
+    Uniquely among the three problems, we can verify OPTIMALITY and not merely
+    correctness. At the gate tier (6 taxa) we exhaustively enumerate all 105
+    unrooted topologies, optimize branch lengths on each, and take the maximum.
+    That is the provable global optimum. A search heuristic that silently
+    returns local optima cannot hide.
+  true_tree_role: >
+    The simulated true tree is used ONLY for the secondary RF metric, never for
+    gating, because the ML tree is not always the true tree and conflating the
+    two is a standard error in this literature.
+
+instances:
+  generator: "own JC69 simulator along a uniformly random topology, fresh seed"
+  tiers:
+    gate:   {n_taxa: 6,   n_sites: 400,  note: "exhaustively solvable: 105 topologies"}
+    tiny:   {n_taxa: 7,   n_sites: 500,  note: "945 topologies"}
+    small:  {n_taxa: 16,  n_sites: 1000}
+    medium: {n_taxa: 48,  n_sites: 2000}
+    large:  {n_taxa: 128, n_sites: 5000}
+
+metrics:
+  primary: final_lnL at fixed CPU budget
+  counter: clv_updates    # conditional-likelihood-vector updates: the implementation-independent work measure
+  secondary: [rf_to_true, lnL_minus_true, wall_s, peak_rss_bytes]
+
+incumbent:
+  name: "neighbour-joining start + NNI hill climbing with branch-length optimisation"
+  implementation: baseline_search.py
+  external_reference: "RAxML-NG / IQ-TREE (both install natively on Apple Silicon via conda)"
+  measured:
+    gate_tier: "reaches the exhaustive global optimum on all gate instances tested"
+    small_tier: "16 taxa x 1000 sites: lnL -9817.41, RF to true tree = 0, 54,900 CLV updates, 2.6 s"
+
+headroom_status: CONFIRMED_AT_N_TAXA_GE_128
+status_verdict: INCLUDE_AT_N_TAXA_GE_128
+headroom_evidence_v3:
+  note: >
+    SUPERSEDES v2. v2 measured only 16-48 taxa and concluded "saturated". A run
+    on the HPC node extended the same apples-to-apples comparison (every tree
+    re-scored with our own Felsenstein) to 128 and 256 taxa, 5 seeds each, and
+    the two SOTA tools diverge sharply.
+  results:
+    - {tier: hard32,  taxa: 32,  median_gap: 0.002,   max_gap: 0.307,   median_rf: 2}
+    - {tier: hard48,  taxa: 48,  median_gap: 0.238,   max_gap: 0.767,   median_rf: 2}
+    - {tier: hard128, taxa: 128, median_gap: 34.930,  max_gap: 51.002,  median_rf: 106}
+    - {tier: hard256, taxa: 256, median_gap: 231.419, max_gap: 322.041, median_rf: 306}
+  conclusion: >
+    Two independently-implemented state-of-the-art searches disagreeing by 35-231
+    log-units and 106-306 splits means at least one is far from the optimum. The
+    inter-tool gap is a LOWER BOUND on the distance from optimal. By the criterion
+    pre-registered in v2, P09 is reinstated with its scored regime bounded to
+    n_taxa >= 128. Below ~50 taxa the problem IS saturated and must not be scored.
+  CONFOUND_RESOLVED: >
+    A matched-budget run swept both tools' search effort and compared log-likelihood at
+    EQUAL CPU seconds. The gap does not close: hard128 median 34.93 -> 6.11,
+    hard256 median 231.42 -> 162.16. Equalising budget removes most of the gap at
+    128 taxa and little of it at 256, but never eliminates it. Decisively, the
+    WINNER ALTERNATES BY SEED (IQ-TREE takes hard128/seed42, raxml-ng the other
+    five) -- two SOTA searches landing in different local optima with neither
+    dominating is the signature of genuine search difficulty, not of one tool
+    being tuned harder. HEADROOM CONFIRMED.
+  matched_cpu_results:
+    - {tier: hard128, seed: 42, cpu_s: 104.3, raxml: -76110.301, iqtree: -76105.444, gap: 4.856, winner: iqtree}
+    - {tier: hard128, seed: 43, cpu_s: 100.2, raxml: -78731.531, iqtree: -78765.869, gap: 34.338, winner: raxml}
+    - {tier: hard128, seed: 44, cpu_s: 86.5,  raxml: -74929.239, iqtree: -74935.344, gap: 6.105, winner: raxml}
+    - {tier: hard256, seed: 42, cpu_s: 503.7, raxml: -154102.857, iqtree: -154350.066, gap: 247.210, winner: raxml}
+    - {tier: hard256, seed: 43, cpu_s: 234.9, raxml: -152332.909, iqtree: -152432.520, gap: 99.611, winner: raxml}
+    - {tier: hard256, seed: 44, cpu_s: 314.0, raxml: -148869.290, iqtree: -149031.446, gap: 162.155, winner: raxml}
+
+# --- superseded, retained for provenance ---
+headroom_status_v2: REFUTED_AT_TESTED_SCALES_16_TO_48
+headroom_evidence_v2:
+  note: >
+    SUPERSEDES the v1 evidence below. The v1 probe compared our NNI baseline to
+    RANDOM RESTARTS of itself and found an 11.74 log-unit gap, which was read as
+    headroom. Benchmarking against the REAL incumbents on the HPC node refutes that
+    reading: the gap was our baseline being weak, not the problem being open.
+  method: >
+    raxml-ng 2.0.2 (--search, 20 starting trees) and IQ-TREE 3.1.3 run on
+    identical instances; EVERY tree -- ours and theirs -- re-scored with our own
+    Felsenstein implementation after parsing their Newick output, so no
+    self-reported likelihood is trusted and the comparison is apples-to-apples.
+    Newick round-trip verified exact to 1e-8 before use.
+  results:   # deficit vs the best tree found by any tool on that instance
+    - {tier: small,  taxa: 16, sites: 1000, arena_nni: 0.108,        raxml_ng: 0.000,        iqtree: 0.000, our_slowdown: 9.5}
+    - {tier: hard16, taxa: 16, sites: 200,  arena_nni: [0.781, 0.344], raxml_ng: [0.0, 0.0],  iqtree: [0.0, 0.0], our_slowdown: 4}
+    - {tier: hard32, taxa: 32, sites: 300,  arena_nni: [15.580, 4.739], raxml_ng: [0.307, 0.063], iqtree: [0.0, 0.0], our_slowdown: 10}
+    - {tier: hard48, taxa: 48, sites: 300,  arena_nni: [20.375, 9.134], raxml_ng: [0.238, 0.017], iqtree: [0.0, 0.0], our_slowdown: 13}
+  conclusion: >
+    raxml-ng and IQ-TREE land within 0.02-0.31 log-units of each other on every
+    instance tested, i.e. two independently-implemented SOTA searches find
+    essentially the same optimum. There is no meaningful search headroom for an
+    agent to discover at 16-48 taxa. Our baseline trails by up to 20 log-units
+    and runs 10-13x slower, failing the SPEC.md II.2 scaffold-fidelity
+    requirement (within 1.5x) by a wide margin.
+  secondary_finding: >
+    At hard48 the incumbents reach the ML optimum with RF=12-16 to the TRUE tree
+    (max RF = 90). This is the textbook warning made concrete: at low information
+    the ML tree is NOT the true tree, so topological accuracy must never be used
+    as the scored objective.
+  open_question_remaining: >
+    Whether raxml-ng and IQ-TREE diverge at 128-256 taxa. If they still agree,
+    P09 is saturated at every scale a solo researcher can evaluate and should be
+    dropped from the scored roster. If they diverge, the gap between two SOTA
+    tools is genuine tool-independent headroom and P09 survives AT THAT SCALE
+    ONLY. Run cluster/slurm/p09_disagreement.slurm to settle it.
+  DO_NOT: >
+    Do not launch a search campaign on P09 before that job returns. The v1
+    headroom number is retracted.
+
+mutable_surface:
+  - "STAGE 1 start: distance estimator and starting-tree construction"
+  - "STAGE 2 moves: the neighbourhood (NNI vs SPR vs TBR)"
+  - "STAGE 3 order: which moves to try and in what order"
+  - "STAGE 4 eval: full vs lazy likelihood evaluation of a proposed move"
+  - "STAGE 5 blens: branch-length optimisation schedule"
+  - "STAGE 6 stop: termination criterion"
+
+gameability_risks:
+  - "Report a likelihood computed under a different model than declared: the harness recomputes lnL itself from the returned tree, never trusting the submission's number."
+  - "Return a tree with degenerate branch lengths that inflate lnL numerically: branch lengths are clipped and the likelihood is recomputed with scaling."
+  - "Spend the budget outside the timed region (precompute at import): import time is measured separately."
+  - "Reimplement RAxML-NG's published SPR schedule and present it as novel: novelty gate."

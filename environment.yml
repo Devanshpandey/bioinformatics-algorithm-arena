@@ -1,0 +1,15 @@
+# Versions used for the HPC-tier results in docs/. Instances are not stable across
+# machines (docs/SPEC.md Finding 8): pin these, and compare result rows only when
+# their instance fingerprints match.
+name: arena
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - numpy>=2.0
+  - msprime=1.4.3
+  - tskit=1.0.3
+  # P09 incumbents; only needed for scaffold_fidelity.py and incumbent_disagreement.py
+  - raxml-ng=2.0.2
+  - iqtree=3.1.3

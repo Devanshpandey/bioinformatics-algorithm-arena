@@ -1,0 +1,5 @@
+# Python-only install (P01, P02, P09 evaluators). The P09 incumbents (raxml-ng,
+# iqtree) are not on PyPI; use environment.yml if you need them.
+numpy>=2.0
+msprime==1.4.3
+tskit==1.0.3

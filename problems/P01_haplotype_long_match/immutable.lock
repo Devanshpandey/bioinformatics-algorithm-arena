@@ -1,0 +1,6 @@
+{
+  "generate.py": "d32584dc355d16c5808a682feb1832f2cb1af623360aa16f39bc73812c6a2fb1",
+  "oracle.py": "38ec3fcbf6f87474f4f680739c274ae2e1b862aa82cd59ef60fab459b43dd791",
+  "pbwt_core.py": "670d18cd34e598cc395ce7edabafaab20f2f16e26ab41fb265b6072b1d81d6bb",
+  "score_submission.py": "73b5d9c38cdd3ab99c32f56ca3ae84df885fbc1f7772e346b849e0a8ff1f446f"
+}

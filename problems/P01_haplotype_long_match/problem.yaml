@@ -1,0 +1,164 @@
+id: P01
+title: Haplotype long-match query (haplotype panel indexing)
+taxonomy_class: "A+B"        # find efficiently + represent efficiently
+status: implemented
+progress: >
+  sub_rlpbwt_streaming meets the SPACE half of the primary beat target at the
+  small tier: 0.251 bits/cell (50,700 runs, 5.43/column), exact against the
+  oracle, and 1.052x faster than the streaming baseline (95% CI [1.038, 1.075]).
+  That is 287x below the dense a+d index and 4x below the bit-packed panel.
+  STILL OPEN: divergence is recomputed per sweep in O(N)/site, not stored with
+  O(1) access, so a single online query remains O(N*M). Measured RLE cost of d is
+  51 bits/cell vs 0.355 for the permutation -- that asymmetry is the real problem.
+  NOT YET A SCORED RESULT: must be re-run at N >= 10,000 (see SCORED_TIER_IS_LARGE_N).
+
+formal_spec:
+  statement: >
+    Given a panel X of N haplotypes over M biallelic sites, a set of Q query
+    haplotypes Z, and a length threshold L, report every maximal match: every
+    (i, j, s, e) with Z[i][s:e] == X[j][s:e], e - s >= L, left-maximal
+    (s == 0 or Z[i][s-1] != X[j][s-1]) and right-maximal
+    (e == M or Z[i][e] != X[j][e]).
+  input: "panel uint8 (N, M); query uint8 (Q, M); integer L"
+  output: "set of (query_index, panel_index, start, end) tuples"
+  api: |
+    build(panel)          -> index object with .nbytes()
+    query(index, z, L)    -> list of (panel_index, start, end)
+
+truth_source:
+  kind: EXACT
+  detail: >
+    oracle.py enumerates the definition directly in O(Q*N*M). It is not an
+    approximation of the truth, it IS the truth. Correctness is therefore set
+    equality, not a statistical comparison, which puts this problem in the
+    same evaluator class as the minimizer-density work.
+
+correctness_gate: >
+  Exact set equality against the oracle on 25 freshly generated tiny instances
+  whose seeds are drawn per evaluation run. Binary pass/fail; no partial credit.
+
+instances:
+  generator: msprime 1.3.1 coalescent with recombination, fresh seed per run
+  tiers:
+    tiny:   {n_hap: 60,      seq_len_bp: 2.0e5, note: "gate + debugging"}
+    small:  {n_hap: 1000,    seq_len_bp: 2.0e6, note: "laptop; search loop tier"}
+    medium: {n_hap: 10000,   seq_len_bp: 1.0e7, note: "laptop or single HPC node"}
+    large:  {n_hap: 100000,  seq_len_bp: 2.0e7, note: "HPC; scaling-curve endpoint"}
+  why_simulated: >
+    Fresh seeds defeat both instance-overfitting and any memorization of a
+    public answer key, and remove the data-access constraint entirely. Real
+    panels (1000G, HGDP+1kGP) are used only as a final external-validity check,
+    never inside the search loop.
+
+metrics:
+  primary_accuracy: exact match-set equality (gate, not a score)
+  cost_axes:
+    - build_s
+    - query_s_per_query
+    - peak_rss_bytes
+    - index_bytes_per_panel_cell
+  counters: [probes, compares, index_bytes]
+
+incumbent:
+  name: PBWT (Durbin 2014) prefix + divergence arrays, virtual-insertion query
+  implementation: baseline_pbwt.py (this repo, pure Python reference)
+  measured_small_tier:
+    instance: "panel 980 x 9330 sites, 20 queries, L=300, seed 42 (BinaryMutationModel; pre-fix numbers were measurements of a non-exact program)"
+    build_s: 53.3
+    query_s_per_query: 0.247
+    index_bytes_per_panel_cell: 8.0
+    index_vs_bitpacked_panel: 64x
+    oracle_query_s_per_query: 1.443
+  caveat: >
+    The reference incumbent is pure Python and the oracle is numpy-vectorised,
+    so the measured 5.8x query speedup badly understates PBWT's asymptotic
+    advantage (O(M + output) vs O(N*M) per query). This is a live instance of
+    the implementation-vs-algorithm confound the arena scoring rule must
+    neutralise, and it is why counters are reported next to seconds.
+
+beat_target:
+  # Rewritten after the independent literature audit localized the target.
+  # The old "8.0 -> below 1.0 bytes per cell" was directionally right but named
+  # the wrong object: the space is ALL in the divergence array, not the
+  # permutation. Measured on our own instances: allele-column runs r = 50,712
+  # (5.4 runs/column, same regime as mu-PBWT's ~11 at N=5,008 on 1000G), so an
+  # O(r)-word index at 2 words/run would cost 0.71 bits/cell -- below the
+  # bit-packed panel itself. But d is incompressible by RLE at 0.80 runs/cell.
+  PRIMARY: >
+    Represent the divergence information in o(N*M) space with O(1) access, while
+    still reporting ALL long maximal matches exactly (gate 1 + 1b). Target under
+    1.0 bit per panel cell without being slower than the uncompressed PBWT.
+  WHY_IT_IS_OPEN: >
+    No published implementation is simultaneously (a) exact for all long maximal
+    matches, (b) at or below 1 bit/cell, and (c) not slower than uncompressed
+    PBWT. Syllable-PBWT: 1.0-2.0 bits/cell, static, hash-based. mu-PBWT: 0.021
+    bits/cell on WGS but SMEM-only and up to 6x slower than Durbin. Dynamic
+    mu-PBWT: right query, 12-15 bits/cell. PBML: KL-SMEMs. The intersection is
+    empty as of 2026-09-01.
+  THEORY_EXISTS_IMPLEMENTATION_DOES_NOT:
+    - "Sanaullah, Zhi & Zhang, WABI 2025 (10.4230/LIPIcs.WABI.2025.17; arXiv:2505.15698): O(m+occ) expected time in O(r) words for exactly this problem via a Nishimoto-Tabei move structure. The paper's own future work asks for a practical implementation. None exists."
+    - "Bonizzoni, Cozzi & Gao, arXiv:2602.13461 (2026): O(r-tilde)-word RLPBWT with constant-time forward and backward stepping. Explicitly no experimental validation."
+  BOUNDS: >
+    No lower bound specific to long-match query on haplotype panels is published.
+    Kempa & Kociumaka (arXiv:2510.19820, 2025) prove that in O(delta polylog n)
+    space over binary alphabets, LCE/SA/LCP-class queries need
+    Theta(log n / log log n) while BWT/LF/PLCP/Phi need Theta(log log n).
+    Divergence access is the positional analogue of LCP -- the harder class -- so
+    O(1) divergence access is out of reach at delta-bounded space but attainable
+    at O(r) words. The search should live in that gap. CAVEAT: those theorems are
+    about standard strings and the ordinary BWT; the PBWT is a different
+    column-wise transform and no paper formally transfers them. Strong analogy,
+    not a citation.
+  DISAMBIGUATION_REQUIRED: >
+    "All long maximal matches" (this problem), "set-maximal / SMEM", and
+    "k-SMEM / KL-SMEM" are DIFFERENT problems. About half the apparent PBWT SOTA
+    is not comparable to P01 because it solves a different one. Any novelty claim
+    must state which problem it solves.
+  QUERY_TIME_MUST_BE_STATED_PER_OUTPUT: >
+    Do NOT state a query-time target as "N-independent". Measured: the output of
+    this problem grows as matches/query ~ N^1.31, so per-query time necessarily
+    grows with N. N-independence is a property of SET-MAXIMAL (SMEM) queries, not
+    of all-long-match reporting. Report time per reported match, or time
+    normalised by output size. Any comparison against a published number must
+    first confirm that tool solves the SAME problem (see DISAMBIGUATION_REQUIRED).
+  SCORED_TIER_IS_LARGE_N: >
+    Measured at N<=4,000 the zero-byte streaming submission BEATS the 144-341 MB
+    stored index at every query count including Q=1, and at N=3,992 the index
+    loses by 1.56x (memory traffic). At laptop scale this benchmark cannot
+    distinguish index quality at all. The scored tier is therefore N >= 10,000
+    (target 100,000, the regime mu-PBWT reports); laptop tiers are for the
+    correctness gate only.
+  SECONDARY:
+    - "QUERY SCALING: at fixed exact correctness, reduce the fitted growth exponent of query time in N across tiers, on three fresh seeds."
+    - "BUILD: >=2x faster build at the medium tier at equal index size and query time."
+  NOT_A_WIN: >
+    Our baseline is ~100x off compiled implementations (Dynamic mu-PBWT: N=100,000
+    in 0.2325 s on UKB chr21; ours: 0.247 s at N=980). Both are N-independent per
+    query, so that gap is interpreter and constant-factor overhead. It belongs on
+    Leaderboard B and must never be presented as a discovery.
+
+mutable_surface:
+  - panel representation / ordering (the PBWT permutation is one choice among many)
+  - divergence information: what is stored, sampled, or recomputed on the fly
+  - index sampling and checkpointing strategy
+  - query traversal and block-scan strategy
+  - compression of the stored arrays with rank/select support
+  - approximation: a submission MAY be inexact only if it declares itself so and
+    is scored on a separate recall-constrained leaderboard, never on the exact one
+
+gameability_risks:
+  - "Returning the panel itself as the 'index' and brute-forcing at query time
+     scores well on index_bytes: guard by scoring query time jointly and by
+     including the panel in the accounted bytes."
+  - "Tuning L or thresholds to the fixed benchmark instance: guard by fresh seeds
+     per run and by evaluating across an L sweep."
+  - "Deferring work lazily outside the timed build region: guard by measuring peak
+     RSS and by timing the first query separately from the steady state."
+  - "Reimplementing published PBWT variants and presenting them as new: guard by
+     the novelty-verification step before any claim leaves the repo."
+
+downstream_leverage: >
+  A better haplotype index propagates into P02 (IBD detection is 'find pairs
+  sharing a long approximate substring'), P03 (imputation's Li-Stephens state
+  space is a copying-candidate search) and P11 (compressed panel storage). This
+  is the highest-leverage node in the arena graph.
