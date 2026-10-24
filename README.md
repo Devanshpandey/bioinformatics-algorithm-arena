@@ -22,7 +22,7 @@ written up as numbered findings in [`docs/SPEC.md`](docs/SPEC.md).
 |---|---|---|---|---|
 | [**P01**](problems/P01_haplotype_long_match) | Haplotype long-match query (PBWT index) | brute-force exact enumeration of all long maximal matches | index bits per panel cell (space); single-query latency (online) | active; agent campaign run |
 | [**P02**](problems/P02_ibd_detection) | IBD segment detection | exact genealogical IBD from the simulated tree sequence (`tskit`) | cM recall/precision relative to the incumbent | evaluator and incumbent built |
-| [**P09**](problems/P09_ml_tree_search) | Maximum-likelihood phylogeny search | provable optimum by exhaustive enumeration (gate); exact log-likelihood (score) | log-likelihood at matched CPU, n_taxa ≥ 128 | evaluator built; headroom confirmed |
+| [**P09**](problems/P09_ml_tree_search) | Maximum-likelihood phylogeny search | provable optimum by exhaustive enumeration (gate); exact log-likelihood (score) | log-likelihood at matched CPU, n_taxa ≥ 128 | evaluator and baselines built; tools diverge at ≥ 128 taxa |
 
 All instances are **simulated from a fresh seed** (msprime coalescent panels, or
 alignments along a known random tree), so there is no answer key to memorise and no
@@ -85,15 +85,19 @@ These are laptop wall-clock times. Differences under ~1.2× are within that mach
 measured noise floor ([`docs/SPEC.md`](docs/SPEC.md), Tier-0 calibration), so the first
 three candidates are indistinguishable from the incumbent on batch speed.
 
-### P09: real headroom, but only at scale
+### P09: the search method matters, but only at scale
 
 Measured against our own NNI baseline, P09 looked like it had 11.7 log-units of
 headroom. Against the real incumbents (RAxML-NG 2.0.2 and IQ-TREE 3.1.3, every tree
-re-scored with our own Felsenstein pruning) that headroom disappeared below ~50 taxa,
-because the two tools agree to within 0.3 log-units. At 128 and 256 taxa they diverge.
-Once CPU budget is matched, the median gap is **6.1 and 162 log-units**, and the
-winner alternates by seed. That is the signature of genuine search difficulty. P09's
-scored regime is therefore n_taxa ≥ 128.
+re-scored with our own Felsenstein pruning) that gap disappeared below ~50 taxa,
+because the two tools agree to within 0.31 log-units. At 128 and 256 taxa they diverge.
+Once CPU budget is matched, the median gap is **6.1 and 162 log-units**, and RAxML-NG
+finds the higher-likelihood tree in 5 of 6 runs.
+
+This is a baseline comparison, run before any agent search. It demonstrates sensitivity
+to search method under matched compute budgets; it does not show that either tool misses
+the global optimum. P09 is scored at n_taxa ≥ 128, where the choice of search method
+changes the result.
 
 ## What the evaluator got wrong, and how we found out
 
