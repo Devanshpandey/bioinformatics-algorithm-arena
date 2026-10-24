@@ -57,13 +57,33 @@ Two things this table does **not** show, and that the arena was redesigned to ex
 
 - **Scoring only where it is cheap mis-ranks.** The small-tier winner finishes third at
   n30k. A leaderboard built at the convenient scale would have crowned the wrong method.
-- **Space is not the whole problem.** A second sealed scorer
+- **Space is not the whole problem.** Smaller indexes cost query time. In the batch
+  workload the space champion `sub_column_diff` answers a query in **0.449 s vs 0.171 s**
+  for the incumbent, **2.6× slower** (table below). A second sealed scorer
   ([`score_online.py`](problems/P01_haplotype_long_match/score_online.py)) measures
-  single-query latency with the index built once. The space champion is **~20× slower
-  per query** than the incumbent (30.1 s vs 1.47 s at fixed M=3,000, N up to 16k;
+  single-query latency with the index built once, and there the gap widens to
+  **~20×** (30.1 s vs 1.47 s at fixed M=3,000, N up to 16k;
   [`docs/RLPBWT.md` §11](docs/RLPBWT.md)), because arithmetic coding only decodes
   sequentially. The open target remains storing
   the PBWT divergence array in o(NM) space with O(1) access.
+
+Batch query time at the small tier (N=980 haplotypes, 9,330 sites, 20 queries, L=300),
+median over every sealed evaluation in
+[`search_log.jsonl`](problems/P01_haplotype_long_match/search_log.jsonl):
+
+| module | median s/query | vs incumbent | evaluations |
+|---|---:|---:|---:|
+| *incumbent* `sub_rlpbwt_streaming` | 0.171 | 1.00× | 9 |
+| `sub_eliasfano` | 0.174 | 1.01× | 15 |
+| `sub_delta_varint` | 0.187 | 1.09× | 11 |
+| `sub_bitpack_fixed` | 0.193 | 1.13× | 14 |
+| `sub_bitvector_rank` | 0.299 | 1.74× | 23 |
+| `sub_freeform` | 0.431 | 2.51× | 20 |
+| `sub_column_diff` | 0.449 | 2.62× | 17 |
+
+These are laptop wall-clock times. Differences under ~1.2× are within that machine's
+measured noise floor ([`docs/SPEC.md`](docs/SPEC.md), Tier-0 calibration), so the first
+three candidates are indistinguishable from the incumbent on batch speed.
 
 ### P09: real headroom, but only at scale
 
